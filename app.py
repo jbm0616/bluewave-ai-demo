@@ -79,6 +79,31 @@ else:
 t1,t2,t3,t4 = st.tabs(["신규계약 전·후", "Need 진단", "보호 우선순위", "MVP 범위"])
 
 with t1:
+    st.subheader("신규계약 추가 효과")
+    base_change = row["new_base"] - row["old_base"]
+    down_change = row["new_down"] - row["old_down"]
+    loss_change = m["incremental_downside"]
+    retention_change_pp = (m["new_retention"] - m["old_retention"]) * 100
+
+    def signed_money(value):
+        sign = "+" if value > 0 else "-" if value < 0 else ""
+        return f"{sign}${abs(value)/1e6:,.2f}m"
+
+    effect1, effect2, effect3, effect4 = st.columns(4)
+    effect1.metric("기준 공헌이익 변화", signed_money(base_change))
+    effect2.metric("Downside 공헌이익 변화", signed_money(down_change))
+    effect3.metric("Downside 손실폭 변화", signed_money(loss_change),
+                   delta=f"{signed_money(loss_change)} ({'증가' if loss_change > 0 else '감소'})" if loss_change else "변화 없음",
+                   delta_color="inverse" if loss_change else "off",
+                   help="손실폭은 기준 공헌이익 − Downside 공헌이익입니다. 양수는 손실폭 증가, 음수는 감소를 뜻합니다.")
+    effect4.metric("공헌이익 유지율 변화", f"{m['new_retention']:.1%}",
+                   delta=f"{retention_change_pp:+.1f}%p")
+    st.caption(
+        f"공헌이익 유지율: {m['old_retention']:.1%} → {m['new_retention']:.1%} "
+        f"({retention_change_pp:+.1f}%p) · 금액은 추가 후 − 추가 전 기준이며, m은 백만 달러입니다. "
+        f"현재 분석조건: {period}개월 · {risk}"
+    )
+    st.divider()
     st.subheader("신규계약이 회사 전체 Downside를 얼마나 바꾸는가")
     comp = pd.DataFrame([
         {"구분":"기존 포트폴리오","기준 공헌이익":row["old_base"],"Downside 공헌이익":row["old_down"],
