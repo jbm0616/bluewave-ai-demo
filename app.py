@@ -3,6 +3,7 @@ import pandas as pd
 import streamlit as st
 
 from calc_engine import load_data, choose_scenario, metrics, protected_downside, priority_rows
+from ai_explainer import explain_result
 
 st.set_page_config(
     page_title="BlueWave 신규계약 Downside 진단",
@@ -76,7 +77,7 @@ else:
     st.error("시장위험을 100% 경제적으로 상쇄해도 현재 입력한 목표 수준을 달성하기 어렵습니다.")
 
 # -------- Tabs --------
-t1,t2,t3,t4 = st.tabs(["신규계약 전·후", "Need 진단", "보호 우선순위", "MVP 범위"])
+t1,t2,t3,t4,t5 = st.tabs(["신규계약 전·후", "Need 진단", "보호 우선순위", "AI 해석", "MVP 범위"])
 
 with t1:
     st.subheader("신규계약 추가 효과")
@@ -185,6 +186,69 @@ with t3:
         st.info(f"{names}는 같은 시장경로에서 손실을 일부 상쇄하는 자연상계/우호요인으로 작용합니다.")
 
 with t4:
+    st.subheader("AI 결과 해석")
+    st.caption(
+        "정량 계산엔진이 산출한 결과를 바탕으로, 현재 보호수준이 왜 필요한지와 "
+        "신규계약이 위험을 어떻게 바꿨는지를 AI가 경영진 관점에서 설명합니다."
+    )
+
+    p_ai = pd.DataFrame(priority_rows(row))
+    losses_ai = p_ai[p_ai["영향"] < 0].sort_values("보호검토손실", ascending=False)
+    positives_ai = p_ai[p_ai["영향"] >= 0]
+
+    top_risk = losses_ai.iloc[0]["위험요인"] if len(losses_ai) else "뚜렷한 손실요인 없음"
+    offset_factors = ", ".join(positives_ai["위험요인"].tolist()) if len(positives_ai) else "없음"
+
+    analysis_context = {
+        "period_months": period,
+        "risk_level": risk,
+        "target_retention": target_pct / 100,
+        "old_retention": m["old_retention"],
+        "new_retention": m["new_retention"],
+        "old_downside_loss": m["old_downside_loss"],
+        "new_downside_loss": m["new_downside_loss"],
+        "incremental_downside": m["incremental_downside"],
+        "new_contract_risk_share": m["new_contract_risk_share"],
+        "required_protection": m["required_protection"],
+        "shortage": m["shortage"],
+        "feasible": m["feasible"],
+        "historical_path": row["path"],
+        "top_risk": top_risk,
+        "offset_factors": offset_factors,
+    }
+
+    st.markdown(
+        f"""
+**AI가 해석할 핵심 수치**
+- 분석조건: **{period}개월 · {risk} · 최소 공헌이익 유지율 {target_pct}%**
+- 공헌이익 유지율: **{m['old_retention']:.1%} → {m['new_retention']:.1%}**
+- 신규계약 추가 Downside: **${m['incremental_downside']/1e6:,.2f}m**
+- 신규계약 위험기여율: **{m['new_contract_risk_share']:.1%}**
+- 최소 필요 경제적 보호수준: **{m['required_protection']:.1%}**
+- 가장 큰 손익 훼손요인: **{top_risk}**
+"""
+    )
+
+    if st.button("AI 분석 보기", type="primary"):
+        try:
+            with st.spinner("계산 결과를 해석하고 있습니다..."):
+                explanation = explain_result(analysis_context)
+            st.markdown("#### 경영진 해석")
+            st.info(explanation)
+        except KeyError:
+            st.warning(
+                "OpenAI API 키가 설정되지 않았습니다. "
+                "Streamlit Cloud의 App settings → Secrets에 OPENAI_API_KEY를 등록해 주세요."
+            )
+        except Exception as e:
+            st.error(f"AI 해석을 불러오지 못했습니다: {e}")
+
+    st.caption(
+        "AI는 보호수준을 새로 계산하지 않습니다. 수치 산출은 기존 계산엔진이 담당하고, "
+        "AI는 결과의 원인과 의미를 설명하는 역할만 수행합니다."
+    )
+
+with t5:
     st.subheader("현재 MVP가 하는 것과 하지 않는 것")
     st.markdown("""
 **현재 MVP**
@@ -193,6 +257,7 @@ with t4:
 - 경영진 Risk Limit과 Downside 공헌이익 비교
 - 최소 필요 **경제적 보호수준** 산출
 - 위험요인별 손실기여도와 보호 우선순위 제안
+- 계산 결과에 대한 **AI 기반 경영진 해석**
 
 **후속 고도화**
 - 실제 FFA Forward Curve 및 월물 연결
